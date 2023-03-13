@@ -8,7 +8,7 @@ enum OperandType {
 }
 
 // 正则表达式
-struct RegularExpression {
+pub struct RegularExpression {
     regular_id: usize,
     name: String,
     operator_symbol: char, //正则运算符，共有 7 种：‘=’, ‘~’, ‘-’, ‘|’, ‘.’, ‘*’, ‘+’, ‘?’
@@ -22,7 +22,8 @@ struct RegularExpression {
 }
 
 // 字符集
-struct CharSet {
+#[derive(Debug, Copy, Clone)]
+pub struct CharSet {
     index_id: usize,   //字符集 id
     segment_id: usize, //字符集中的段 id。一个字符集可以包含多个段
     from_char: char,   //段的起始字符
@@ -44,6 +45,7 @@ pub type RegularTable = Vec<RegularExpression>;
 pub type CharSetTable = Vec<CharSet>;
 
 // 字符集表的下一个字符集id
+// 由于保证在表中id单调不减，所以直接检查表尾即可
 fn peek_id(table: &CharSetTable) -> usize {
     match table.last() {
         Some(last) => last.index_id + 1,
@@ -150,4 +152,19 @@ fn diff_set_ch(set_id: usize, c: char, mut table: &mut CharSetTable) -> usize {
     }
     table.append(&mut new_set);
     next_id
+}
+
+#[cfg(test)]
+mod test {
+    use crate::reg::{range, union_ch, union_mix, union_set, CharSet, CharSetTable};
+
+    #[test]
+    fn test() {
+        let mut table = CharSetTable::new();
+        let sta_id = range('a', 'c', &mut table);
+        let stb_id = union_ch('f', 'k', &mut table);
+        let stc_id = union_set(sta_id, stb_id, &mut table);
+        let std_id = union_mix(stc_id, 'q', &mut table);
+        println!("{:?}", table);
+    }
 }

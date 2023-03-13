@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "compiler_exp"
+name = "compiler_expt"
 version = "0.1.0"
