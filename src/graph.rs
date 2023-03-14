@@ -1,5 +1,4 @@
 use super::reg::CharSetTable;
-use std::f32::consts::E;
 use std::slice::Iter;
 
 // NFA词素类型
@@ -168,47 +167,51 @@ fn generate_basic_nfa(driver_type: DriverType, driver_id: usize, table: CharSetT
 
 // 并运算的构造法是直接修改状态编号
 fn union(nfa1: &Graph, nfa2: &Graph) -> Graph {
-    let size = nfa1.state_table.len();
+    // s表示nfa1的中间状态数量
+    let s = nfa1.state_table.len() - 1;
+    // t表示nfa2的中间状态的数量
+    let t = nfa2.state_table.len() - 1;
     let mut new_graph = Graph::new(vec![], vec![], nfa1.charset_table.clone());
+
+    // 先设置开始状态和结束状态
     new_graph.add_state(State::new(0));
-    new_graph.add_state(State::new(size - 1).set_type(StateType::Match));
-    // 对于nfa1，除了结束状态和开始状态，全部加到新图里
-    // 对于边，将结束状态的编号修改为size-1
+    new_graph.add_state(State::new(s + t - 1).set_type(StateType::Match));
+    // nfa1，除了结束状态和开始状态，全部加到新图里
     new_graph.append_states(
         nfa1.states()
             .map(|s| s.clone())
             .filter(|state| state.state_id > 0 && state.state_id < nfa1.num_of_states() - 1)
             .collect(),
     );
+    // 对于边，将结束状态的编号修改为s+t-1
     new_graph.append_edges(
         nfa1.edges()
             .map(|edge| {
                 if edge.next_state == nfa1.num_of_states() - 1 {
-                    Edge::new(edge.from_state, size - 1, edge.driver_id, edge.driver_type)
+                    Edge::new(edge.from_state, s + t - 1, edge.driver_id, edge.driver_type)
                 } else {
                     edge.clone()
                 }
             })
             .collect(),
     );
-    // 对于nfa2，0状态和结束状态直接跳过；其他序号全部加nfa1.num_of_state-1
+    // 对于nfa2，0状态和结束状态直接跳过；其他序号全部加s-1
     new_graph.append_states(
         nfa2.states()
             .filter(|state| state.state_id >= 1 && state.state_id < nfa2.num_of_states() - 1)
-            .map(|state| State::new(state.state_id + nfa1.num_of_states() - 1))
+            .map(|state| State::new(state.state_id + s - 1))
             .collect(),
     );
     new_graph.append_edges(
         nfa2.edges()
             .map(|edge| {
-                let offset = nfa1.num_of_states() - 1;
                 Edge::new(
                     if edge.from_state == 0 {
                         0
                     } else {
-                        edge.from_state + offset
+                        edge.from_state + s - 1
                     },
-                    edge.next_state + offset,
+                    edge.next_state + s - 1,
                     edge.driver_id,
                     edge.driver_type,
                 )
@@ -224,6 +227,7 @@ fn union(nfa1: &Graph, nfa2: &Graph) -> Graph {
 fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
     let mut new_nfa = nfa1.clone();
     new_nfa.end_state().state_type = StateType::Unmatch;
+    // 如果s有入边t有出边，则需要添加一个空转移
     if assert_out_edge(nfa1.num_of_states() - 1, nfa1) && assert_in_edge(0, nfa2) {
         new_nfa.add_state(State::new(new_nfa.num_of_states()));
         new_nfa.add_edge(Edge::new(
@@ -233,9 +237,11 @@ fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
             DriverType::Null,
         ));
     }
+    // nfa2不需要添加初始状态
     new_nfa.append_states(
         nfa2.states()
-            .map(|state| State::new(nfa1.num_of_states() + state.state_id))
+            .filter(|s| s.state_id != 0)
+            .map(|state| State::new(nfa1.num_of_states() - 1 + state.state_id))
             .collect(),
     );
     new_nfa.end_state().state_type = StateType::Match;
@@ -243,8 +249,8 @@ fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
         nfa2.edges()
             .map(|edge| {
                 Edge::new(
-                    edge.from_state + nfa1.num_of_states(),
-                    edge.next_state + nfa2.num_of_states(),
+                    edge.from_state + nfa1.num_of_states() - 1,
+                    edge.next_state + nfa1.num_of_states() - 1,
                     edge.driver_id,
                     edge.driver_type,
                 )
@@ -258,7 +264,7 @@ fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
 // 直接在结束状态添加一个到开始状态的边
 fn plus_closure(nfa: &Graph) -> Graph {
     let mut new_nfa = nfa.clone();
-    new_nfa.add_edge(Edge::new(0, nfa.num_of_states() - 1, 0, DriverType::Null));
+    new_nfa.add_edge(Edge::new(nfa.num_of_states() - 1, 0, 0, DriverType::Null));
     new_nfa
 }
 
@@ -294,7 +300,12 @@ fn closure(nfa: &Graph) -> Graph {
             DriverType::Null,
         ));
     }
-
+    new_nfa.edge_table.push(Edge::new(
+        0,
+        new_nfa.num_of_states() - 1,
+        0,
+        DriverType::Null,
+    ));
     new_nfa
 }
 // 0 或者 1 个运算。
@@ -334,17 +345,59 @@ fn zero_or_one(nfa: &Graph) -> Graph {
 #[cfg(test)]
 mod test {
     use crate::graph::DriverType::Charset;
-    use crate::graph::{generate_basic_nfa, DriverType, Graph, union};
+    use crate::graph::{
+        closure, generate_basic_nfa, plus_closure, product, union, zero_or_one, DriverType, Graph,
+    };
     use crate::reg::{CharSet, CharSetTable};
 
-    #[test]
-    fn union_test() {
+    fn two_graph() -> (Graph, Graph) {
         let mut charset_table = CharSetTable::new();
         charset_table.push(CharSet::new(0, 0, 'a', 'a'));
         charset_table.push(CharSet::new(1, 0, 'b', 'b'));
-        let mut graph_a = generate_basic_nfa(DriverType::Charset, 0, charset_table.clone());
-        let mut graph_b = generate_basic_nfa(DriverType::Charset, 1, charset_table.clone());
+        let mut graph_a = generate_basic_nfa(Charset, 0, charset_table.clone());
+        let mut graph_b = generate_basic_nfa(Charset, 1, charset_table.clone());
+        (graph_a, graph_b)
+    }
+
+    fn one_graph() -> Graph {
+        let mut charset_table = CharSetTable::new();
+        charset_table.push(CharSet::new(0, 0, 'a', 'a'));
+        let graph = generate_basic_nfa(Charset, 0, charset_table.clone());
+        graph
+    }
+
+    #[test]
+    fn union_test() {
+        let (graph_a, graph_b) = two_graph();
         let new_nfa = union(&graph_a, &graph_b);
         println!("{:?}", new_nfa);
+    }
+
+    #[test]
+    fn product_test() {
+        let (graph_a, graph_b) = two_graph();
+        let new_nfa = product(&graph_a, &graph_b);
+        println!("{:?}", new_nfa);
+    }
+
+    #[test]
+    fn plus_closure_test() {
+        let graph = one_graph();
+        let new_nfa = plus_closure(&graph);
+        println!("{:?}", new_nfa)
+    }
+
+    #[test]
+    fn closure_test() {
+        let graph = one_graph();
+        let new_nfa = closure(&graph);
+        println!("{:?}", new_nfa)
+    }
+
+    #[test]
+    fn zero_or_one_test() {
+        let graph = one_graph();
+        let new_nfa = zero_or_one(&graph);
+        println!("{:?}", new_nfa)
     }
 }

@@ -55,7 +55,7 @@ fn peek_id(table: &CharSetTable) -> usize {
 
 // 字符的范围运算
 // 假定确保 from_char <= to_char
-fn range(from_char: char, to_char: char, mut table: &mut CharSetTable) -> usize {
+fn range(from_char: char, to_char: char, table: &mut CharSetTable) -> usize {
     let set_id = peek_id(table);
     table.push(CharSet::new(set_id, 0, from_char, to_char));
     set_id
@@ -65,7 +65,7 @@ fn range(from_char: char, to_char: char, mut table: &mut CharSetTable) -> usize 
 // 假定确保 c1 != c2
 // 当两字符相连时，等价于range(c1, c2)
 // 否则创建包含两段的字符集，每个字符集包含一个字符
-fn union_ch(c1: char, c2: char, mut table: &mut CharSetTable) -> usize {
+fn union_ch(c1: char, c2: char, table: &mut CharSetTable) -> usize {
     let set_id = peek_id(table);
     if c1 > c2 {
         return union_ch(c2, c1, table);
@@ -81,7 +81,7 @@ fn union_ch(c1: char, c2: char, mut table: &mut CharSetTable) -> usize {
 // 字符和字符集的并运算
 // 创建新的字符集，原字符集不变
 // 不检测给定字符是否在原字符集范围之内
-fn union_mix(set_id: usize, c: char, mut table: &mut CharSetTable) -> usize {
+fn union_mix(set_id: usize, c: char, table: &mut CharSetTable) -> usize {
     let next_id = peek_id(table);
     let mut new_set: Vec<_> = table
         .iter()
@@ -102,12 +102,12 @@ fn union_mix(set_id: usize, c: char, mut table: &mut CharSetTable) -> usize {
 // 字符集的并运算
 // 创建新的字符集，原字符集不变
 // 不检测两字符集是否有交叉
-fn union_set(set_id_l: usize, set_id_r: usize, mut table: &mut CharSetTable) -> usize {
+fn union_set(set_id_l: usize, set_id_r: usize, table: &mut CharSetTable) -> usize {
     let next_id = peek_id(table);
     let mut new_set: Vec<_> = table
         .iter()
         .filter(|seg| seg.index_id == set_id_l || seg.index_id == set_id_r)
-        .map(|mut seg| CharSet::new(next_id, seg.segment_id, seg.from_char, seg.to_char))
+        .map(|seg| CharSet::new(next_id, seg.segment_id, seg.from_char, seg.to_char))
         .collect();
     table.append(&mut new_set);
     next_id
@@ -121,11 +121,11 @@ fn union_set(set_id_l: usize, set_id_r: usize, mut table: &mut CharSetTable) -> 
 // 1. 这个段刚好等于这个字符，直接删除段
 // 2. 这个段减去这个字符后拆分为两个段
 // 3. 这个字符刚好是段的from或to, 最后仍是一个段
-fn diff_set_ch(set_id: usize, c: char, mut table: &mut CharSetTable) -> usize {
+fn diff_set_ch(set_id: usize, c: char, table: &mut CharSetTable) -> usize {
     let next_id = peek_id(table);
     let mut seg_id = 0;
     let mut new_set = vec![];
-    for seg in table.iter() {
+    for seg in table.iter().filter(|s| s.index_id == set_id) {
         if c == seg.from_char {
             new_set.push(CharSet::new(
                 next_id,
