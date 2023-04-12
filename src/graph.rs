@@ -1,5 +1,4 @@
 use crate::charset::{charsets_in, CharSetTable};
-use std::cell::RefCell;
 
 use queues::{queue, IsQueue, Queue};
 use std::collections::{HashMap, HashSet};

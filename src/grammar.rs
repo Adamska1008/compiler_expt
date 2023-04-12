@@ -1,11 +1,138 @@
-use std::collections::HashMap;
 use crate::symbol::{FirstSet, FollowSet, GrammarSymbol, Production};
+use std::collections::{HashMap, HashSet};
 
+#[derive(Debug)]
 pub struct Grammar {
-    terminal: Vec<GrammarSymbol>,
-    productions: Vec<Production>,
-    first_map: HashMap<GrammarSymbol, FirstSet>,
-    follow_map: HashMap<GrammarSymbol, FollowSet>
+    pub non_terminal: HashSet<GrammarSymbol>,
+    pub terminal: HashSet<GrammarSymbol>,
+    pub productions: Vec<Production>,
+    pub first_map: HashMap<GrammarSymbol, FirstSet>,
+    pub follow_map: HashMap<GrammarSymbol, FollowSet>,
+}
+
+impl Grammar {
+    /// Return a new Grammar structure.
+    ///
+    /// Automatically extract symbols from productions.
+    /// Do not build two maps initially. They will be dynamically built afterwards.
+    pub fn new(productions: Vec<Production>) -> Self {
+        let mut grammar = Grammar {
+            non_terminal: HashSet::new(),
+            terminal: HashSet::new(),
+            productions: productions,
+            first_map: HashMap::new(),
+            follow_map: HashMap::new(),
+        };
+        // extract symbols from productions
+        for production in &grammar.productions {
+            grammar.non_terminal.insert(production.left.clone());
+            for symbol in &production.right {
+                match symbol {
+                    GrammarSymbol::NonTerminalSymbol(_) => {
+                        grammar.non_terminal.insert(symbol.clone());
+                    }
+                    GrammarSymbol::TerminalSymbol(_) => {
+                        grammar.terminal.insert(symbol.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        grammar
+    }
+
+    /// Return the first set of the symbol
+    ///
+    /// # panics
+    /// If the symbol is non terminal and is not in the grammar, panics.
+    ///
+    pub fn first(&mut self, symbol: impl Into<GrammarSymbol>) -> FirstSet {
+        let symbol = symbol.into();
+        if let GrammarSymbol::NonTerminalSymbol(_) = symbol {
+            if !self.non_terminal.contains(&symbol) {
+                panic!("The symbol {:?} is not in the grammar", symbol);
+            }
+            match self.first_map.get(&symbol) {
+                Some(first_set) => first_set.clone(),
+                None => {
+                    let productions: Vec<_> = self
+                        .productions
+                        .iter()
+                        .filter(|&p| p.left == symbol)
+                        .map(|p| p.clone())
+                        .collect();
+                    let mut first_set = FirstSet::new();
+                    for p in productions {
+                        if p.is_null() {
+                            first_set.insert(GrammarSymbol::Null);
+                            continue;
+                        }
+                        first_set.extend(self.first_of_production(p.clone()));
+                    }
+                    self.first_map.insert(symbol, first_set.clone());
+                    first_set
+                }
+            }
+        } else {
+            return FirstSet::from([symbol]);
+        }
+    }
+
+    /// Return the first set of production that in the environment of this grammar.
+    pub fn first_of_production(&mut self, production: Production) -> FirstSet {
+        let mut res = FirstSet::new();
+        if production.is_null() {
+            res.insert(GrammarSymbol::Null);
+            return res;
+        }
+        let mut k = 0;
+        let n = production.right.len();
+        while k < n {
+            let first_x_k = self.first(production.right[k].clone());
+            res.extend(first_x_k.clone());
+            res.remove(&GrammarSymbol::Null);
+            if !first_x_k.contains(&GrammarSymbol::Null) {
+                break;
+            }
+            k += 1;
+        }
+        if k == n {
+            res.insert(GrammarSymbol::Null);
+        }
+        res
+    }
+
+    pub fn follow(&mut self, symbol: impl Into<GrammarSymbol>) -> FollowSet {
+        let symbol = symbol.into();
+        match self.follow_map.get(&symbol) {
+            Some(follow_set) => follow_set.clone(),
+            None => {
+                let mut res = FollowSet::new();
+                for production in self.productions.clone() {
+                    if let Some(pos) = production.find(&symbol) {
+                        if pos == production.right.len() - 1 {
+                            // if the symbol is in the end of production
+                            if let Some(follow_left) = self.follow_map.get(&production.left) {
+                                res.extend(follow_left.clone());
+                            } else {
+                                let follow_left = self.follow(production.left.clone());
+                                self.follow_map
+                                    .insert(production.left.clone(), follow_left.clone());
+                                res.extend(follow_left);
+                            }
+                        } else {
+                            let mut first_beta = self.first(production.right[pos + 1].clone());
+                            first_beta.remove(&GrammarSymbol::Null);
+                            res.extend(first_beta);
+                            // 先跳过beta推导出epsilon的情况
+                        }
+                    }
+                }
+                self.follow_map.insert(symbol, res.clone());
+                res
+            }
+        }
+    }
 }
 
 pub mod LL1 {
@@ -35,7 +162,10 @@ pub mod LR0 {
 
     impl LR0Item {
         pub fn new(production: Production) -> Self {
-            Self { production, dot_pos: 0 }
+            Self {
+                production,
+                dot_pos: 0,
+            }
         }
 
         /// Check the next symbol after dot
@@ -54,7 +184,8 @@ pub mod LR0 {
         }
 
         pub fn is_shift(&self) -> bool {
-            self.dot_pos < self.production.right.len() && self.production.right[self.dot_pos].is_terminal()
+            self.dot_pos < self.production.right.len()
+                && self.production.right[self.dot_pos].is_terminal()
         }
 
         pub fn is_reduction(&self) -> bool {
@@ -69,7 +200,9 @@ pub mod LR0 {
 
     impl ItemSet {
         pub fn new() -> Self {
-            Self { item_set: HashSet::new() }
+            Self {
+                item_set: HashSet::new(),
+            }
         }
 
         pub fn insert(&mut self, value: LR0Item) -> bool {
@@ -156,7 +289,8 @@ pub mod LR0 {
                 }
                 let mut v = v.clone();
                 self.states.push(v);
-                self.edges.push(TransitionEdge::new(from, self.states.len() - 1, k.clone()));
+                self.edges
+                    .push(TransitionEdge::new(from, self.states.len() - 1, k.clone()));
             }
         }
 
@@ -222,13 +356,68 @@ pub mod LR0 {
 
 #[cfg(test)]
 mod test {
-    use crate::grammar::LR0::DFA;
-    use crate::graph::product;
+    use crate::{grammar::LR0::DFA, symbol::GrammarSymbol};
     use std::collections::HashSet;
 
     use crate::symbol::Production;
 
-    use super::LR0::{ItemSet, LR0Item};
+    use super::{
+        Grammar,
+        LR0::{ItemSet, LR0Item},
+    };
+
+    // A->ab
+    #[test]
+    fn test_grammar_first_simple() {
+        let mut grammar = Grammar::new(vec![Production::like('A', "ab")]);
+        let output = grammar.first('A');
+        assert_eq!(output.len(), 1);
+        assert!(output.contains(&'a'.into()));
+    }
+
+    // A->ab
+    // B->Ab
+    #[test]
+    fn test_grammar_first_nonterminal() {
+        let mut grammar = Grammar::new(vec![
+            Production::like('A', "ab"),
+            Production::like('B', "Ab"),
+        ]);
+        let output = grammar.first('B');
+        assert_eq!(output.len(), 1);
+        assert!(output.contains(&'a'.into()));
+    }
+
+    // A->e
+    // B->AAb
+    // C->AA
+    #[test]
+    fn test_grammar_first_with_null() {
+        let mut grammar = Grammar::new(vec![
+            Production::new('A'.into(), vec![GrammarSymbol::Null]),
+            Production::like('B', "AAb"),
+            Production::like('C', "AA"),
+        ]);
+        let b_first = grammar.first('B');
+        assert_eq!(b_first.len(), 1);
+        assert!(b_first.contains(&'b'.into()));
+        let c_first = grammar.first('C');
+        assert_eq!(c_first.len(), 1);
+        assert!(c_first.contains(&GrammarSymbol::Null));
+    }
+
+    // A->aBc
+    // B->b
+    #[test]
+    fn test_grammar_follow() {
+        let mut grammar = Grammar::new(vec![
+            Production::like('A', "aBc"),
+            Production::like('B', "b"),
+        ]);
+        let output = grammar.follow('B');
+        assert_eq!(output.len(), 1);
+        assert!(output.contains(&'c'.into()));
+    }
 
     // S = {A->·B}
     // additional: B->b
@@ -241,7 +430,10 @@ mod test {
         let mut item_set = ItemSet::new();
         item_set.insert(LR0Item::new(prod1.clone()));
         let closure = item_set.closure(prod_set);
-        assert_eq!(closure.item_set, HashSet::from([LR0Item::new(prod1), LR0Item::new(prod2)]));
+        assert_eq!(
+            closure.item_set,
+            HashSet::from([LR0Item::new(prod1), LR0Item::new(prod2)])
+        );
     }
 
     // S0 = {A->·Ba}
