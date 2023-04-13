@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
 
 pub type FirstSet = HashSet<GrammarSymbol>;
 pub type FollowSet = HashSet<GrammarSymbol>;
@@ -25,7 +26,7 @@ impl GrammarSymbol {
     /// use compiler_expt::symbol;
     /// use compiler_expt::symbol::GrammarSymbol;
     /// let x = GrammarSymbol::chain("abcd");
-    /// let y = vec![symbol!('a'), symbol!('b'), symbol!('c'), symbol!('d')];
+    /// let y: Vec<GrammarSymbol> = vec!['a'.into(), 'b'.into(), 'c'.into(), 'd'.into()];
     /// assert_eq!(x, y);
     /// ```
     pub fn chain(s: &str) -> Vec<GrammarSymbol> {
@@ -55,10 +56,7 @@ impl GrammarSymbol {
     /// let fs = GrammarSymbol::get_first('a'.into(), &HashMap::new());
     /// assert_eq!(fs, HashSet::from(['a'.into()]));
     /// ```
-    pub fn get_first(
-        symbol: GrammarSymbol,
-        first_map: &HashMap<GrammarSymbol, FirstSet>,
-    ) -> FirstSet {
+    pub fn get_first(symbol: GrammarSymbol, first_map: &HashMap<GrammarSymbol, FirstSet>) -> FirstSet {
         match symbol {
             GrammarSymbol::NonTerminalSymbol(_) => first_map.get(&symbol).unwrap().clone(),
             other => HashSet::from([other]),
@@ -86,6 +84,15 @@ impl GrammarSymbol {
             _ => false,
         }
     }
+
+    pub fn inner(&self) -> String {
+        match self {
+            GrammarSymbol::TerminalSymbol(str) => str.clone(),
+            GrammarSymbol::NonTerminalSymbol(str) => str.clone(),
+            GrammarSymbol::Null => "e".to_string(),
+            GrammarSymbol::End => "#".to_string(),
+        }
+    }
 }
 
 impl From<char> for GrammarSymbol {
@@ -111,11 +118,22 @@ impl From<&str> for GrammarSymbol {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+#[derive(Eq, PartialEq, Hash, Clone)]
 // The production will pre-build FIRST set
 pub struct Production {
     pub left: GrammarSymbol,
     pub right: Vec<GrammarSymbol>,
+}
+
+impl Debug for Production {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let left = self.left.inner();
+        let mut right: String = String::new();
+        for str in self.right.iter().map(|s| s.inner()) {
+            right += &str;
+        }
+        write!(f, "Production {{ {}->{} }}", left, right)
+    }
 }
 
 impl Production {
@@ -157,9 +175,8 @@ impl Production {
 // A-> Aa1 | Aa2 | ... | Aan | b1 | b2 | ... bn
 // make sure that the 'left' part in productions are the same
 pub fn has_left_recursion(productions: &Vec<Production>) -> bool {
-    let left = &productions[0].left;
     for production in productions {
-        if production.right.len() >= 1 && production.right[0] == *left {
+        if production.right.len() >= 1 && production.right[0] == production.left {
             return true;
         }
     }
@@ -174,10 +191,7 @@ pub fn eliminate_left_recursion(productions: &Vec<Production>) -> Vec<Production
     let left = &productions[0].left;
     let left_dash = left.dash();
 
-    let mut res = vec![Production::new(
-        left_dash.clone(),
-        vec![GrammarSymbol::Null],
-    )];
+    let mut res = vec![Production::new(left_dash.clone(), vec![GrammarSymbol::Null])];
     for production in productions {
         if production.right.len() >= 1 && production.right[0] == *left {
             // is recursive
@@ -209,16 +223,10 @@ pub fn has_common_factor(productions: &Vec<Production>) -> Option<GrammarSymbol>
 }
 
 // extract the specified factor
-pub fn extract_common_factor(
-    productions: &Vec<Production>,
-    factor: GrammarSymbol,
-) -> Vec<Production> {
+pub fn extract_common_factor(productions: &Vec<Production>, factor: GrammarSymbol) -> Vec<Production> {
     let left = &productions[0].left;
     let left_dash = left.dash();
-    let mut res = vec![Production::new(
-        left.clone(),
-        vec![factor.clone(), left_dash.clone()],
-    )];
+    let mut res = vec![Production::new(left.clone(), vec![factor.clone(), left_dash.clone()])];
     for production in productions {
         if production.right[0] == factor {
             let new_right_inner = Vec::from(&production.right[1..]);
@@ -233,8 +241,8 @@ pub fn extract_common_factor(
 #[cfg(test)]
 mod test {
     use crate::symbol::{
-        eliminate_left_recursion, extract_common_factor, has_common_factor, has_left_recursion,
-        GrammarSymbol, Production,
+        eliminate_left_recursion, extract_common_factor, has_common_factor, has_left_recursion, GrammarSymbol,
+        Production,
     };
 
     // A->Ab | c
@@ -242,6 +250,12 @@ mod test {
     fn test_has_left_recursion() {
         let productions = vec![Production::like('A', "Ab"), Production::like('A', "c")];
         assert_eq!(has_left_recursion(&productions), true);
+        let productions = vec![
+            Production::like('A', "ab"),
+            Production::like('A', "bc"),
+            Production::like('B', "Aa"),
+        ];
+        assert_eq!(has_left_recursion(&productions), false);
     }
 
     // A->Ab | c

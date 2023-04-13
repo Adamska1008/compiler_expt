@@ -239,7 +239,11 @@ pub fn union(nfa1: &Graph, nfa2: &Graph) -> Graph {
     new_nfa.end_state().state_id = s + t - 1;
     // change the identifier of end state from s to s+t-1
     new_nfa.edge_table.iter_mut().for_each(|edge| {
-        edge.next_state = if edge.next_state == s { s + t - 1 } else { edge.next_state };
+        edge.next_state = if edge.next_state == s {
+            s + t - 1
+        } else {
+            edge.next_state
+        };
     });
     // add all states except start and end to new graph
     // all the identifiers should be plus s+1
@@ -255,7 +259,11 @@ pub fn union(nfa1: &Graph, nfa2: &Graph) -> Graph {
     new_nfa.append_edges(
         nfa2.edges()
             .map(|edge| {
-                let from_state = if edge.from_state == 0 { 0 } else { edge.from_state + s - 1 };
+                let from_state = if edge.from_state == 0 {
+                    0
+                } else {
+                    edge.from_state + s - 1
+                };
                 Edge::new(from_state, edge.next_state + s - 1, edge.driver_id, edge.driver_type)
             })
             .collect(),
@@ -288,7 +296,14 @@ pub fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
     new_nfa.append_edges(
         nfa2.edge_table
             .iter()
-            .map(|edge| Edge::new(edge.from_state + s, edge.next_state + s, edge.driver_id, edge.driver_type))
+            .map(|edge| {
+                Edge::new(
+                    edge.from_state + s,
+                    edge.next_state + s,
+                    edge.driver_id,
+                    edge.driver_type,
+                )
+            })
             .collect(),
     );
     new_nfa
@@ -298,7 +313,12 @@ pub fn product(nfa1: &Graph, nfa2: &Graph) -> Graph {
 pub fn plus_closure(nfa: &Graph) -> Graph {
     let mut new_nfa = nfa.clone();
     // first add a null edge from raw end state to raw start state
-    new_nfa.add_edge(Edge::new(new_nfa.num_of_states() - 1, 0, NULL_DRIVER_ID, DriverType::Null));
+    new_nfa.add_edge(Edge::new(
+        new_nfa.num_of_states() - 1,
+        0,
+        NULL_DRIVER_ID,
+        DriverType::Null,
+    ));
     // if start state has in edge
     // add new start state and null transformation
     // notice that I use raw nfa to do the judge
@@ -322,8 +342,16 @@ fn is_simple_for_closure(nfa: &Graph) -> bool {
 
 // if the nfa is simple, the closure should be treated specially
 fn simple_closure(nfa: &Graph) -> Graph {
-    let mut new_nfa = Graph::new(vec![], vec![State::new(0).set_type(StateType::Match)], &nfa.charset_table);
-    new_nfa.append_edges(nfa.edges().map(|edge| Edge::new(0, 0, edge.driver_id, edge.driver_type)).collect());
+    let mut new_nfa = Graph::new(
+        vec![],
+        vec![State::new(0).set_type(StateType::Match)],
+        &nfa.charset_table,
+    );
+    new_nfa.append_edges(
+        nfa.edges()
+            .map(|edge| Edge::new(0, 0, edge.driver_id, edge.driver_type))
+            .collect(),
+    );
     new_nfa
 }
 
@@ -335,7 +363,12 @@ pub fn closure(nfa: &Graph) -> Graph {
     // reuse the code from plus_closure
     let mut new_nfa = plus_closure(&nfa);
     // add a null edge from start to end
-    new_nfa.add_edge(Edge::new(0, new_nfa.num_of_states() - 1, NULL_DRIVER_ID, DriverType::Null));
+    new_nfa.add_edge(Edge::new(
+        0,
+        new_nfa.num_of_states() - 1,
+        NULL_DRIVER_ID,
+        DriverType::Null,
+    ));
     new_nfa
 }
 
@@ -353,7 +386,12 @@ pub fn zero_or_one(nfa: &Graph) -> Graph {
         push_null_back(&mut new_nfa);
     }
     // add a null edge from start to end
-    new_nfa.add_edge(Edge::new(0, new_nfa.num_of_states() - 1, NULL_DRIVER_ID, DriverType::Null));
+    new_nfa.add_edge(Edge::new(
+        0,
+        new_nfa.num_of_states() - 1,
+        NULL_DRIVER_ID,
+        DriverType::Null,
+    ));
     new_nfa
 }
 
@@ -456,7 +494,10 @@ pub fn d_tran(nfa: &Graph) -> (Dtran, HashSet<usize>) {
     while let Ok(front) = queue.remove() {
         // check if it is matched state
         for state_id in &closures[front].inner {
-            if nfa.get_state_by_id(*state_id).is_some_and(|st| st.state_type == StateType::Match) {
+            if nfa
+                .get_state_by_id(*state_id)
+                .is_some_and(|st| st.state_type == StateType::Match)
+            {
                 matches.insert(front);
             }
         }
@@ -504,8 +545,8 @@ mod test {
     use crate::charset::{CharSet, CharSetTable};
     use crate::graph::DriverType::Charset;
     use crate::graph::{
-        closure, d_tran, e_closure, generate_basic_nfa, nfa_to_dfa, plus_closure, product, union, zero_or_one, DriverType, Edge, Graph,
-        StateSet,
+        closure, d_tran, e_closure, generate_basic_nfa, nfa_to_dfa, plus_closure, product, union, zero_or_one,
+        DriverType, Edge, Graph, StateSet,
     };
     use std::rc::Rc;
 
